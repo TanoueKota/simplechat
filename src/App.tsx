@@ -1,167 +1,209 @@
 import React, { useEffect, useRef, useState } from "react";
+import "./App.css";
 
 /**
- * Very simple chat app (React + TypeScript)
- * Paste this file into a React + TypeScript project as `src/App.tsx`.
- * Works with Create React App (typescript template) or Vite + React + TS.
- * No external libraries required.
+ * Bedrock形式対応のチャットアプリ (React + TypeScript)
  */
 
+// 表示用のメッセージ型
 type Message = {
   id: number;
   author: string;
   text: string;
-  time: string; // ISO or formatted
+  time: string;
+};
+
+// Bedrock形式のメッセージ型
+type BedrockMessage = {
+  role: "user" | "assistant";
+  content: Array<{ text: string }>;
 };
 
 export default function App() {
   const [messages, setMessages] = useState<Message[]>(() => [
-    { id: 1, author: "Bot", text: "ようこそ！簡単なチャットです。", time: new Date().toLocaleTimeString() },
+    { 
+      id: 1, 
+      author: "Bot", 
+      text: "ようこそ！何かお手伝いできることはありますか？", 
+      time: new Date().toLocaleTimeString() 
+    },
   ]);
   const [input, setInput] = useState("");
   const [name, setName] = useState("You");
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // Bedrock形式のチャット履歴を保持
+  const [chatHistory, setChatHistory] = useState<BedrockMessage[]>([]);
+  
   const nextIdRef = useRef<number>(2);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  // APIエンドポイント（仮）
+  const API_ENDPOINT = "https://exxmgbg0hl.execute-api.ap-northeast-1.amazonaws.com/simpleChat/simpleChat";
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  function sendMessage() {
+  async function sendMessage() {
     const trimmed = input.trim();
-    if (!trimmed) return;
-    const msg: Message = {
+    if (!trimmed || isLoading) return;
+
+    // ユーザーメッセージを表示用に追加
+    const userMsg: Message = {
       id: nextIdRef.current++,
       author: name || "You",
       text: trimmed,
       time: new Date().toLocaleTimeString(),
     };
-    setMessages((m) => [...m, msg]);
-    setInput(""); // 入力をリセット
+    setMessages((m) => [...m, userMsg]);
+    setInput("");
+    setIsLoading(true);
 
-    // very simple faux-reply from "Bot" after a short delay
-    setTimeout(() => {
-      const reply: Message = {
+    try {
+      // APIリクエストを送信
+      const response = await fetch(API_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: trimmed,
+          chat_history: chatHistory, // Bedrock形式のまま送信
+          user_name: name || "ユーザー",
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const aiResponse = data.response;
+
+      // AIの応答を表示用に追加
+      const botMsg: Message = {
         id: nextIdRef.current++,
         author: "Bot",
-        text: `受け取りました: "${trimmed}"`,
+        text: aiResponse,
         time: new Date().toLocaleTimeString(),
       };
-      setMessages((m) => [...m, reply]);
-    }, 700);
+      setMessages((m) => [...m, botMsg]);
+
+      // Bedrock形式でチャット履歴を更新
+      const newHistory: BedrockMessage[] = [
+        ...chatHistory,
+        {
+          role: "user",
+          content: [{ text: trimmed }],
+        },
+        {
+          role: "assistant",
+          content: [{ text: aiResponse }],
+        },
+      ];
+      setChatHistory(newHistory);
+
+    } catch (error) {
+      console.error("API Error:", error);
+      
+      // エラーメッセージを表示
+      const errorMsg: Message = {
+        id: nextIdRef.current++,
+        author: "Bot",
+        text: "申し訳ございません。エラーが発生しました。もう一度お試しください。",
+        time: new Date().toLocaleTimeString(),
+      };
+      setMessages((m) => [...m, errorMsg]);
+    } finally {
+      setIsLoading(false);
+    }
   }
 
+  function handleKeyPress(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  }
+
+  function clearChat() {
+    setMessages([
+      { 
+        id: 1, 
+        author: "Bot", 
+        text: "チャットをクリアしました。何かお手伝いできることはありますか？", 
+        time: new Date().toLocaleTimeString() 
+      },
+    ]);
+    setChatHistory([]);
+    nextIdRef.current = 2;
+  }
 
   return (
-    <div style={styles.app}>
-      <header style={styles.header}>
-        <h1 style={{ margin: 0, fontSize: 18 }}>Simple Chat</h1>
-        <div style={styles.nameWrap}>
-          <label style={{ fontSize: 12, marginRight: 6 }}>名前</label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            style={styles.nameInput}
-            placeholder="あなたの名前"
-          />
+    <div className="app">
+      <header className="header">
+        <h1>AI Chat (Bedrock)</h1>
+        <div className="header-controls">
+          <div className="name-wrap">
+            <label>名前</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="name-input"
+              placeholder="あなたの名前"
+            />
+          </div>
+          <button className="clear-btn" onClick={clearChat}>
+            クリア
+          </button>
         </div>
       </header>
 
-      <main style={styles.chatWindow}>
+      <main className="chat-window">
         {messages.map((m) => (
           <div
             key={m.id}
-            style={m.author === name ? styles.myMessageRow : styles.otherMessageRow}
+            className={m.author === name ? "message-row my-message" : "message-row other-message"}
           >
-            <div style={styles.messageBubble}>
-              <div style={styles.messageMeta}>
-                <strong style={{ fontSize: 13 }}>{m.author}</strong>
-                <span style={{ fontSize: 11, marginLeft: 8 }}>{m.time}</span>
+            <div className={`message-bubble ${m.author === name ? "my-bubble" : "other-bubble"}`}>
+              <div className="message-meta">
+                <strong>{m.author}</strong>
+                <span className="message-time">{m.time}</span>
               </div>
-              <div style={{ marginTop: 6 }}>{m.text}</div>
+              <div className="message-text">{m.text}</div>
             </div>
           </div>
         ))}
+        {isLoading && (
+          <div className="message-row other-message">
+            <div className="message-bubble other-bubble">
+              <div className="loading-dots">
+                <span>.</span><span>.</span><span>.</span>
+              </div>
+            </div>
+          </div>
+        )}
         <div ref={bottomRef} />
       </main>
 
-      <footer style={styles.footer}>
+      <footer className="footer">
         <input
-          style={styles.input}
+          className="input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onKeyPress={handleKeyPress}
           placeholder="メッセージを入力して Enter または送信ボタン"
+          disabled={isLoading}
         />
-        <button style={styles.sendBtn} onClick={sendMessage}>
-          送信
+        <button 
+          className={`send-btn ${isLoading ? "disabled" : ""}`}
+          onClick={sendMessage}
+          disabled={isLoading}
+        >
+          {isLoading ? "送信中..." : "送信"}
         </button>
       </footer>
     </div>
   );
 }
-
-const styles: { [k: string]: React.CSSProperties } = {
-  app: {
-    height: "100vh",
-    width: "100vw", // 横いっぱいに広げる
-    display: "flex",
-    flexDirection: "column",
-    fontFamily: "Helvetica, Arial, sans-serif",
-    background: "#f3f4f6",
-  },
-  header: {
-    padding: "12px 16px",
-    borderBottom: "1px solid #e5e7eb",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    background: "white",
-  },
-  nameWrap: { display: "flex", alignItems: "center" },
-  nameInput: {
-    padding: "6px 8px",
-    borderRadius: 6,
-    border: "1px solid #d1d5db",
-    fontSize: 13,
-  },
-  chatWindow: {
-    flex: 1,
-    padding: 16,
-    overflowY: "auto",
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-  },
-  myMessageRow: { alignSelf: "flex-end", maxWidth: "80%" },
-  otherMessageRow: { alignSelf: "flex-start", maxWidth: "80%" },
-  messageBubble: {
-    background: "white",
-    padding: "10px 12px",
-    borderRadius: 10,
-    boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
-  },
-  messageMeta: { display: "flex", alignItems: "center" },
-  footer: {
-    padding: 12,
-    borderTop: "1px solid #e5e7eb",
-    display: "flex",
-    gap: 8,
-    background: "white",
-  },
-  input: {
-    flex: 1,
-    padding: "10px 12px",
-    borderRadius: 8,
-    border: "1px solid #d1d5db",
-    fontSize: 14,
-  },
-  sendBtn: {
-    padding: "10px 14px",
-    borderRadius: 8,
-    border: "none",
-    background: "#2563eb",
-    color: "white",
-    fontWeight: 600,
-    cursor: "pointer",
-  },
-};
